@@ -1,0 +1,10 @@
+{
+  "name": "Passport TV Bitmap",
+  "license": "OFL-1.1",
+  "source_url": "https://github.com/adobe-fonts/source-han-sans/blob/release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf",
+  "source_sha256": "f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256",
+  "outputs": {
+    "ui_font_data.h": "caed2de002521e87f83c363b48245122ccb01024d7d46be4208995b77464bd7a",
+    "ui_font_cjk.bin": "4e9dd2c6eaeeb9c24ab2549517268438d2de070a8cbcc08ddab172a57ed4e335"
+  }
+}

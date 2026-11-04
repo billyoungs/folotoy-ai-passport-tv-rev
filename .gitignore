@@ -1,0 +1,15 @@
+build/
+dist/
+**/managed_components/
+sdkconfig
+sdkconfig.old
+__pycache__/
+.venv/
+channels.txt
+*.token
+pairing.code
+paired-devices.json
+.pairing-*
+*.key
+.env
+server.env

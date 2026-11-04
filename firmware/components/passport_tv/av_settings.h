@@ -1,0 +1,42 @@
+// Backlight levels and the rules for stepping between them.
+//
+// Kept apart from the hardware so the arithmetic can be tested on the host: the
+// interesting part is not writing a PWM register, it is that stepping up from
+// the brightest level and down from the dimmest both have to land somewhere
+// sensible rather than falling off the end.
+#pragma once
+#include <stdbool.h>
+#include <stdint.h>
+
+// Levels are a fixed set of steps rather than a continuous percentage.
+//
+// Continuous would let the viewer reach zero, which turns the panel black and
+// takes away the very screen they would need to raise it again. Steps are 10%
+// apart, the same as volume, so both settings feel alike.
+extern const uint8_t AV_BRIGHTNESS_LEVELS[];
+extern const unsigned AV_BRIGHTNESS_COUNT;
+
+// Defaults for a device that has never been adjusted. A device that already has
+// a stored brightness keeps it; every previously stored level is still a level.
+#define AV_BRIGHTNESS_DEFAULT_PERCENT 50u
+#define AV_VOLUME_DEFAULT_PERCENT 55u
+
+// The percentage for `index`, clamped into the table, so a stored value from a
+// build with a different number of levels still yields a usable setting.
+uint8_t av_brightness_percent(unsigned index);
+
+// The index of the level closest to `percent`, for reading a stored value back.
+unsigned av_brightness_nearest_index(uint8_t percent);
+
+// Step to the next level. `up` is brighter, otherwise dimmer. Both ends wrap, so
+// a held button cycles rather than sticking.
+unsigned av_brightness_step(unsigned index, bool up);
+
+// Whether `percent` is one of the levels, used to reject a corrupted store
+// rather than applying it.
+bool av_brightness_valid_percent(uint8_t percent);
+
+enum { AV_QUALITY_SMOOTH, AV_QUALITY_STANDARD, AV_QUALITY_ULTRA, AV_QUALITY_COUNT };
+#define AV_QUALITY_DEFAULT AV_QUALITY_ULTRA
+const char *av_quality_id(unsigned quality);
+const char *av_quality_name(unsigned quality);

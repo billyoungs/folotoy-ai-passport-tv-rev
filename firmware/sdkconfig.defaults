@@ -1,0 +1,74 @@
+# --- 目标芯片 ---
+CONFIG_IDF_TARGET="esp32c3"
+# 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
+
+# --- Flash ---
+# FoloToy AI Passport 当前产品/固件基线使用 8MB Flash。
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# 固定 8MB 镜像头，关闭 detect，便于 idf.py merge-bin。
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
+# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- 控制台:USB-Serial-JTAG(C3 原生 USB,GPIO18/19)---
+# 不用 UART0:其默认 TX=GPIO21 与本板背光引脚冲突。
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# --- LVGL ---
+CONFIG_LV_COLOR_DEPTH_16=y
+# 20 ms display refresh period targets up to 50 FPS when rendering and SPI
+# transfer complete within the same budget.
+CONFIG_LV_DEF_REFR_PERIOD=20
+CONFIG_LV_FONT_MONTSERRAT_10=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+# LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
+# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
+CONFIG_LV_MEM_SIZE_KILOBYTES=36
+# Fresh-config builds resolved this to empty, which breaks LVGL includes;
+# keep it aligned with the tracked sdkconfig value.
+CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
+CONFIG_LV_USE_TJPGD=y
+CONFIG_LV_USE_QRCODE=y
+
+# --- 系统 ---
+CONFIG_FREERTOS_HZ=1000
+# CONFIG_COMPILER_OPTIMIZATION_PERF is not set
+
+# Keep the accepted 20 KiB receive window within this no-PSRAM board's budget.
+# The 30 fps profile retains the existing send buffer, mailbox and Wi-Fi buffers;
+# it does not enlarge the application video buffer.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=20480
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=48
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=48
+# Report received out-of-order segments so the TV sender can recover missing
+# data selectively. Keep the existing bounded receive buffers on this no-PSRAM board.
+CONFIG_LWIP_TCP_SACK_OUT=y
+CONFIG_LWIP_STATS=y
+# components/passport_tv/tv_lwip_receive.lf places only the measured receive/ACK path in IRAM.
+# CONFIG_LWIP_IRAM_OPTIMIZATION is not set
+
+# The standalone host reserves TV's 10 KiB video ring. Together with the
+# upstream six static RX buffers, this funds Wi-Fi's common IRAM fast path.
+# RX-only IRAM was slower in the device comparison; retain the common fast path.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_IRAM_OPT=y
+CONFIG_ESP_WIFI_RX_IRAM_OPT=y
+
+# Standalone TV does not start Bluetooth.
+# CONFIG_BT_ENABLED is not set
+
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
+
+CONFIG_ESP_SYSTEM_ALLOW_RTC_FAST_MEM_AS_HEAP=y
+
+# Pairing may use an HTTPS provisioning origin.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
