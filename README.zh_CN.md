@@ -20,7 +20,7 @@
 ## 1. 下载项目
 
 ```sh
-git clone https://github.com/guolifu/ai-passport-tv.git
+git clone https://github.com/billyoungs/ai-passport-tv.git
 cd ai-passport-tv
 ```
 
