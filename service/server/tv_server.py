@@ -358,14 +358,20 @@ class AVServer:
         try:
             session = secrets.randbelow(0xFFFFFFFF) + 1
             self.session_id = session
+            # 会话方向决定服务端用哪种几何下发视频：竖屏 240x320 / 横向 320x180。
+            geometry = getattr(channel, 'geometry', frames.DEFAULT_GEOMETRY)
             # 先发 CONFIG 再向源请求数据：设备握手只给约 2 秒，先采样调色板会使握手超时。
             # CONFIG 只描述格式，与调色板无关。
+            session_config = dict(CONFIG, session=session,
+                                  **({'fps': self.profile.fps, 'quality': self.profile.name}
+                                     if getattr(self, 'profile', None) is not None else {}),
+                                  channel=channel_id,
+                                  channel_list=self.session_channels())
+            session_config['width'] = geometry.width
+            session_config['height'] = geometry.height
+            session_config['stripe_rows'] = geometry.stripe_rows
             send_packet(connection, Packet(Kind.CONFIG, session, 0, 0,
-                                           json_bytes(dict(CONFIG, session=session,
-                                                           **({'fps': self.profile.fps, 'quality': self.profile.name}
-                                                              if getattr(self, 'profile', None) is not None else {}),
-                                                           channel=channel_id,
-                                                           channel_list=self.session_channels()))))
+                                           json_bytes(session_config)))
             self.phase = "live_palette"
             # 首帧前必须有调色板，缺失则设备无色可用，画面全黑。
             try:

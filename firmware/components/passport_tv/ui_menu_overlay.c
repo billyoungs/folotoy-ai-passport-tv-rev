@@ -2,10 +2,10 @@
 #include "av_settings.h"
 #include <stdio.h>
 
-// A compact bottom card within the 320x180 video area (y=30..210).
-enum { X=0, W=320, BOTTOM=210, HEADER=26, ROW=24, FOOTER=26,
+// 竖屏：菜单卡片位于 240x320 画面底部（视频占满整屏）。
+enum { X=0, W=240, BOTTOM=320, HEADER=26, ROW=24, FOOTER=26,
        LIST_TOP=BOTTOM-HEADER-UI_MENU_OVERLAY_ROWS*ROW-FOOTER,
-       QUALITY_TOP=BOTTOM-108,
+       QUALITY_TOP=BOTTOM-HEADER-3*ROW-FOOTER,
        CONTROLS_TOP=BOTTOM-HEADER-2*ROW-FOOTER };
 #define PANEL 0x1082u
 #define FOCUS 0x2249u
@@ -29,16 +29,16 @@ static void prepare(ui_menu_overlay_t *c,const ui_menu_t *m) {
         ui_text_prepare(&c->text[0],"清晰度",240);
         static const char *rates[]={"8 fps","15 fps","30 fps"};
         for (unsigned i=0;i<AV_QUALITY_COUNT;i++) {
-            ui_text_prepare(&c->text[1+i*2],av_quality_name(i),76);
-            ui_text_prepare(&c->text[2+i*2],rates[i],76);
+            ui_text_prepare(&c->text[2+i],av_quality_name(i),160);
+            ui_text_prepare(&c->text[5+i],rates[i],64);
         }
     } else if (m->view==UI_VIEW_CONTROLS) {
         ui_text_prepare(&c->text[0],"电视",100);
         ui_text_prepare(&c->text[2],"频道",160);
         ui_text_prepare(&c->text[3],"清晰度",160);
         snprintf(label,sizeof label,"%u",m->count);
-        ui_text_prepare(&c->text[4],label,64);
-        ui_text_prepare(&c->text[5],av_quality_name(m->quality),64);
+        ui_text_prepare(&c->text[5],label,64);
+        ui_text_prepare(&c->text[6],av_quality_name(m->quality),64);
     } else {
         ui_text_prepare(&c->text[0],"频道",100);
         snprintf(label,sizeof(label),"%s",av_quality_name(m->quality));
@@ -54,8 +54,8 @@ static void prepare(ui_menu_overlay_t *c,const ui_menu_t *m) {
         }
         ui_text_prepare(&c->text[5],av_quality_name(m->quality),64);
     }
-    ui_text_prepare(&c->text[7],"上下选择  OK确认",180);
-    ui_text_prepare(&c->text[8],"长按返回",76);
+    ui_text_prepare(&c->text[8],"上下选择  OK确认",180);
+    ui_text_prepare(&c->text[9],"长按返回",76);
 }
 static void card(ui_surface_t s,int x,int y,int w,int h,uint16_t color) {
     // Four-pixel stepped corners, with every fill clipped to this stripe.
@@ -74,7 +74,8 @@ void ui_menu_overlay_begin(ui_menu_overlay_t *c,const ui_menu_t *m) {
     if (stale(c,m)) prepare(c,m);
 }
 bool ui_menu_overlay_covers(const ui_menu_overlay_t *c,unsigned y,unsigned rows) {
-    if (!c->valid || !rows || (c->view!=UI_VIEW_MENU && c->view!=UI_VIEW_QUALITY && c->view!=UI_VIEW_CONTROLS)) return false;
+    if (!c->valid || !rows || (c->view!=UI_VIEW_MENU && c->view!=UI_VIEW_QUALITY &&
+        c->view!=UI_VIEW_CONTROLS)) return false;
     unsigned top=c->view==UI_VIEW_MENU?LIST_TOP:c->view==UI_VIEW_CONTROLS?CONTROLS_TOP:QUALITY_TOP;
     // Only the full-width rectangular interior is opaque. Corner stripes and
     // all visible video still take the normal checked decoder path.
@@ -114,19 +115,21 @@ void ui_menu_overlay_draw(const ui_menu_overlay_t *c,ui_surface_t s) {
                 ui_text_fill(s,X+10,y+7,2,10,ACCENT);
             }
             ui_text_paint(s,X+18,y+4,&c->text[2+i],chosen?UI_COLOR_TEXT:UI_COLOR_DIM);
-            ui_text_paint(s,X+W-18-c->text[4+i].width,y+4,&c->text[4+i],ACCENT);
+            ui_text_paint(s,X+W-18-c->text[5+i].width,y+4,&c->text[5+i],ACCENT);
         }
     } else {
         for (unsigned i=0;i<AV_QUALITY_COUNT;i++) {
-            int x=X+(W-292)/2+(int)i*100,y=top+HEADER+2;
+            int y=top+HEADER+(int)i*ROW;
             bool chosen=i==c->quality_selected;
-            card(s,x,y,92,48,chosen?FOCUS:UI_COLOR_BACKDROP);
-            ui_text_paint(s,x+(92-c->text[1+i*2].width)/2,y+5,&c->text[1+i*2],UI_COLOR_TEXT);
-            ui_text_paint(s,x+(92-c->text[2+i*2].width)/2,y+25,&c->text[2+i*2],chosen?ACCENT:UI_COLOR_DIM);
-            if (i==c->quality) ui_text_fill(s,x+34,y+44,24,2,ACCENT);
+            if (chosen) {
+                card(s,X+6,y,W-12,ROW,FOCUS);
+                ui_text_fill(s,X+10,y+7,2,10,ACCENT);
+            }
+            ui_text_paint(s,X+18,y+4,&c->text[2+i],chosen?UI_COLOR_TEXT:UI_COLOR_DIM);
+            ui_text_paint(s,X+W-18-c->text[5+i].width,y+4,&c->text[5+i],chosen?ACCENT:UI_COLOR_DIM);
         }
     }
     ui_text_fill(s,X+12,BOTTOM-FOOTER,W-24,1,UI_COLOR_RULE);
-    ui_text_paint(s,X+12,BOTTOM-FOOTER+6,&c->text[7],UI_COLOR_DIM);
-    ui_text_paint(s,X+W-12-c->text[8].width,BOTTOM-FOOTER+6,&c->text[8],UI_COLOR_DIM);
+    ui_text_paint(s,X+12,BOTTOM-FOOTER+6,&c->text[8],UI_COLOR_DIM);
+    ui_text_paint(s,X+W-12-c->text[9].width,BOTTOM-FOOTER+6,&c->text[9],UI_COLOR_DIM);
 }

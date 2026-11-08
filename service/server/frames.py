@@ -15,11 +15,13 @@ from __future__ import annotations
 import os
 import struct
 import zlib
+from dataclasses import dataclass
 
 # 画面几何：名称 -> (宽, 高, 每条带行数)。必须与固件编译时的几何一致，
 # 否则设备在 CONFIG 校验时拒绝会话。四项均为 15 条带；320x180 为 16:9 默认值，其余为 4:3。
 GEOMETRIES = {"320x240": (320, 240, 16), "280x210": (280, 210, 14),
-              "240x180": (240, 180, 12), "320x180": (320, 180, 12)}
+              "240x180": (240, 180, 12), "320x180": (320, 180, 12),
+              "240x320": (240, 320, 16)}
 _NAME = os.environ.get("TV_GEOMETRY", "320x180")
 if _NAME not in GEOMETRIES:
     raise SystemExit(f"TV_GEOMETRY={_NAME} is not a geometry this firmware has: "
@@ -33,6 +35,48 @@ FRAME_PIXELS = WIDTH * HEIGHT
 # 每帧恰为 FRAME_PIXELS 字节，无调色板尾部。
 TRAILER_BYTES = 0
 FRAME_BYTES = FRAME_PIXELS + TRAILER_BYTES
+
+
+@dataclass(frozen=True)
+class Geometry:
+    """画面几何：宽、高、每条带行数，及其派生值。
+
+    per-session 方向（横向/纵向）通过选择不同 Geometry 实现，而不改变进程级默认。
+    """
+    name: str
+    width: int
+    height: int
+    stripe_rows: int
+
+    @property
+    def stripes(self) -> int:
+        return self.height // self.stripe_rows
+
+    @property
+    def stripe_pixels(self) -> int:
+        return self.width * self.stripe_rows
+
+    @property
+    def frame_pixels(self) -> int:
+        return self.width * self.height
+
+    @property
+    def frame_bytes(self) -> int:
+        return self.frame_pixels + TRAILER_BYTES
+
+    @property
+    def portrait(self) -> bool:
+        return self.width < self.height
+
+
+DEFAULT_GEOMETRY = Geometry(_NAME, WIDTH, HEIGHT, STRIPE_ROWS)
+
+
+def geometry_for(orientation: str | None) -> Geometry:
+    """根据方向返回几何：portrait 用 240x320（服务端旋转），landscape 用 320x180。"""
+    name = "240x320" if orientation == "portrait" else "320x180"
+    w, h, rows = GEOMETRIES[name]
+    return Geometry(name, w, h, rows)
 
 # 视频包上限，必须等于固件 AV_VIDEO_MAX；超限会话被结束，不会被截断。
 VIDEO_MAX = 22528
@@ -50,14 +94,15 @@ _HEADER = struct.Struct(">BB")
 _COMPRESS_LEVEL = 6
 
 
-def compress_stripes(frame: bytes, send: list[bool] | None = None) -> list[bytes]:
+def compress_stripes(frame: bytes, send: list[bool] | None = None,
+                     geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """切条并逐条压缩；`send` 为 False 的条带输出空串（长度 0，设备不重绘）。"""
-    if len(frame) != FRAME_PIXELS:
-        raise ValueError(f"frame is {len(frame)} bytes, expected {FRAME_PIXELS}")
+    if len(frame) != geometry.frame_pixels:
+        raise ValueError(f"frame is {len(frame)} bytes, expected {geometry.frame_pixels}")
     return [
-        zlib.compress(frame[at * STRIPE_PIXELS:(at + 1) * STRIPE_PIXELS], _COMPRESS_LEVEL)
+        zlib.compress(frame[at * geometry.stripe_pixels:(at + 1) * geometry.stripe_pixels], _COMPRESS_LEVEL)
         if send is None or send[at] else b""
-        for at in range(STRIPES)
+        for at in range(geometry.stripes)
     ]
 
 
@@ -100,7 +145,8 @@ LADDER = _ladder()
 
 
 def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
-                  min_diff: float = DELTA_MAX_DIFF) -> tuple[list[bytes], bytes, int]:
+                  min_diff: float = DELTA_MAX_DIFF,
+                  geometry: Geometry = DEFAULT_GEOMETRY) -> tuple[list[bytes], bytes, int]:
     """压缩 `raw` 使其不超过 `target` 字节，返回（待发条带，设备将显示的画面，档位）。
 
     先原样尝试，再逐档降质，取第一个放得下的档位；最粗仍放不下才按变化量丢条带。
@@ -108,10 +154,10 @@ def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
     chosen, drawn = [], raw
     for rung, table in enumerate(LADDER):
         drawn = raw.translate(table) if rung else raw
-        chosen = choose_stripes(drawn, shown, tick, 1 << 30, min_diff)
+        chosen = choose_stripes(drawn, shown, tick, 1 << 30, min_diff, geometry)
         if _wire_size(chosen) <= target:
             return chosen, drawn, rung
-    return (choose_stripes(drawn, shown, tick, target, min_diff), drawn,
+    return (choose_stripes(drawn, shown, tick, target, min_diff, geometry), drawn,
             len(LADDER) - 1)
 
 
@@ -125,12 +171,13 @@ def differing_pixels(a: bytes, b: bytes) -> int:
     return len(a) - x.to_bytes(len(a), "big").count(0)
 
 
-def _deflate(raw: bytes, at: int) -> bytes:
-    return zlib.compress(raw[at * STRIPE_PIXELS:(at + 1) * STRIPE_PIXELS], _COMPRESS_LEVEL)
+def _deflate(raw: bytes, at: int, geometry: Geometry = DEFAULT_GEOMETRY) -> bytes:
+    return zlib.compress(raw[at * geometry.stripe_pixels:(at + 1) * geometry.stripe_pixels], _COMPRESS_LEVEL)
 
 
 def choose_stripes(raw: bytes, shown: bytes | None, tick: int, allowed: int,
-                   min_diff: float = DELTA_MAX_DIFF) -> list[bytes]:
+                   min_diff: float = DELTA_MAX_DIFF,
+                   geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """在 `allowed` 字节内选出值得发送的压缩条带；未选中的条带为空串。
 
     `shown` 为设备已收到的画面，None 表示首帧，全部发送。
@@ -138,26 +185,26 @@ def choose_stripes(raw: bytes, shown: bytes | None, tick: int, allowed: int,
     其余条带按与 `shown` 的差异数从大到小发送，直到放不下为止；落选条带
     无需记账，下一帧差异只增不减。
     """
-    if len(raw) != FRAME_PIXELS:
-        raise ValueError(f"frame is {len(raw)} bytes, expected {FRAME_PIXELS}")
+    if len(raw) != geometry.frame_pixels:
+        raise ValueError(f"frame is {len(raw)} bytes, expected {geometry.frame_pixels}")
     if shown is None:
-        return compress_stripes(raw)
-    floor = int(STRIPE_PIXELS * min_diff)
-    refresh = tick % STRIPES
-    out = [b""] * STRIPES
-    out[refresh] = _deflate(raw, refresh)
-    spent = _HEADER.size + 2 * STRIPES + len(out[refresh])
+        return compress_stripes(raw, geometry=geometry)
+    floor = int(geometry.stripe_pixels * min_diff)
+    refresh = tick % geometry.stripes
+    out = [b""] * geometry.stripes
+    out[refresh] = _deflate(raw, refresh, geometry)
+    spent = _HEADER.size + 2 * geometry.stripes + len(out[refresh])
     ranked = []
-    for at in range(STRIPES):
+    for at in range(geometry.stripes):
         if at == refresh:
             continue
-        lo, hi = at * STRIPE_PIXELS, (at + 1) * STRIPE_PIXELS
+        lo, hi = at * geometry.stripe_pixels, (at + 1) * geometry.stripe_pixels
         changed = differing_pixels(raw[lo:hi], shown[lo:hi])
         if changed > floor:
             ranked.append((-changed, at))
     ranked.sort()
     for _, at in ranked:
-        z = _deflate(raw, at)
+        z = _deflate(raw, at, geometry)
         if spent + len(z) > allowed:
             continue
         out[at] = z
@@ -166,23 +213,23 @@ def choose_stripes(raw: bytes, shown: bytes | None, tick: int, allowed: int,
 
 
 def fill_stripes(raw: bytes, shown: bytes | None, chosen: list[bytes],
-                 allowed: int) -> list[bytes]:
+                 allowed: int, geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """在 `chosen` 之外，用 `allowed` 的剩余字节补发被跳过且有差异的条带，差异大者优先。"""
     if shown is None:
         return chosen
     spent = _wire_size(chosen)
     ranked = []
-    for at in range(STRIPES):
+    for at in range(geometry.stripes):
         if chosen[at]:
             continue
-        lo, hi = at * STRIPE_PIXELS, (at + 1) * STRIPE_PIXELS
+        lo, hi = at * geometry.stripe_pixels, (at + 1) * geometry.stripe_pixels
         changed = differing_pixels(raw[lo:hi], shown[lo:hi])
         if changed:
             ranked.append((-changed, at))
     ranked.sort()
     out = list(chosen)
     for _, at in ranked:
-        z = _deflate(raw, at)
+        z = _deflate(raw, at, geometry)
         if spent + len(z) > allowed:
             continue
         out[at] = z
@@ -190,21 +237,23 @@ def fill_stripes(raw: bytes, shown: bytes | None, chosen: list[bytes],
     return out
 
 
-def apply_stripes(raw: bytes, shown: bytes | None, sent: list[bytes]) -> bytes:
+def apply_stripes(raw: bytes, shown: bytes | None, sent: list[bytes],
+                  geometry: Geometry = DEFAULT_GEOMETRY) -> bytes:
     """设备收到 `sent` 后显示的画面：`shown` 上覆盖 `raw` 中对应的条带。"""
     merged = bytearray(shown if shown is not None else raw)
     for at, stripe in enumerate(sent):
         if stripe:
-            lo = at * STRIPE_PIXELS
-            merged[lo:lo + STRIPE_PIXELS] = raw[lo:lo + STRIPE_PIXELS]
+            lo = at * geometry.stripe_pixels
+            merged[lo:lo + geometry.stripe_pixels] = raw[lo:lo + geometry.stripe_pixels]
     return bytes(merged)
 
 
-def packet(first: int, compressed: list[bytes]) -> bytes:
+def packet(first: int, compressed: list[bytes],
+           geometry: Geometry = DEFAULT_GEOMETRY) -> bytes:
     """由连续的压缩条带构造一个载荷。"""
     if not compressed:
         raise ValueError("a packet carries at least one stripe")
-    if first + len(compressed) > STRIPES:
+    if first + len(compressed) > geometry.stripes:
         raise ValueError(f"stripes {first}+{len(compressed)} run past the frame")
     table = struct.pack(f">{len(compressed)}H", *(len(s) for s in compressed))
     payload = _HEADER.pack(first, len(compressed)) + table + b"".join(compressed)
@@ -213,12 +262,13 @@ def packet(first: int, compressed: list[bytes]) -> bytes:
     return payload
 
 
-def frame_packets(frame: bytes) -> list[bytes]:
+def frame_packets(frame: bytes, geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """整帧压缩并打包。"""
-    return pack_stripes(compress_stripes(frame))
+    return pack_stripes(compress_stripes(frame, geometry=geometry), geometry)
 
 
-def pack_stripes(compressed: list[bytes]) -> list[bytes]:
+def pack_stripes(compressed: list[bytes],
+                 geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """按字节预算把已压缩条带打包成多个载荷；空条带占 2 字节长度表。
 
     单条带超过预算时独自成包，超过 VIDEO_MAX 则抛错。
@@ -231,7 +281,7 @@ def pack_stripes(compressed: list[bytes]) -> list[bytes]:
         # 长度表每条带增加 2 字节，预算先扣除包头与长度表。
         overhead = _HEADER.size + 2 * (len(run) + 1)
         if run and overhead + run_bytes + len(stripe) > PACKET_TARGET_BYTES:
-            packets.append(packet(at, run))
+            packets.append(packet(at, run, geometry))
             at += len(run)
             run, run_bytes = [], 0
             overhead = _HEADER.size + 2
@@ -242,7 +292,7 @@ def pack_stripes(compressed: list[bytes]) -> list[bytes]:
         run.append(stripe)
         run_bytes += len(stripe)
     if run:
-        packets.append(packet(at, run))
+        packets.append(packet(at, run, geometry))
     return packets
 
 
@@ -257,12 +307,12 @@ def read_exactly(stream, size: int) -> bytes:
     return bytes(data)
 
 
-def read_frame(stream, stop) -> bytes | None:
+def read_frame(stream, stop, geometry: Geometry = DEFAULT_GEOMETRY) -> bytes | None:
     """从 rawvideo 管道读一帧；流结束或只读到半帧时返回 None，半帧不补齐。"""
     if stop.is_set():
         return None
-    raw = read_exactly(stream, FRAME_PIXELS)
-    if len(raw) != FRAME_PIXELS:
+    raw = read_exactly(stream, geometry.frame_pixels)
+    if len(raw) != geometry.frame_pixels:
         return None
     if TRAILER_BYTES:
         if len(read_exactly(stream, TRAILER_BYTES)) != TRAILER_BYTES:
@@ -272,12 +322,12 @@ def read_frame(stream, stop) -> bytes | None:
 
 # --- 载荷解包（测试与校验用） ---
 
-def unpack(payload: bytes) -> list[bytes]:
+def unpack(payload: bytes, geometry: Geometry = DEFAULT_GEOMETRY) -> list[bytes]:
     """把载荷拆成解压后的条带。"""
     if len(payload) < _HEADER.size:
         raise ValueError("payload shorter than its own header")
     first, count = _HEADER.unpack_from(payload)
-    if count == 0 or first + count > STRIPES:
+    if count == 0 or first + count > geometry.stripes:
         raise ValueError(f"stripe range {first}+{count} outside the frame")
     end = _HEADER.size + 2 * count
     if len(payload) < end:
@@ -289,8 +339,8 @@ def unpack(payload: bytes) -> list[bytes]:
     at = end
     for n, length in enumerate(lengths):
         raw = zlib.decompress(payload[at:at + length])
-        if len(raw) != STRIPE_PIXELS:
-            raise ValueError(f"stripe {first + n} is {len(raw)} bytes, not {STRIPE_PIXELS}")
+        if len(raw) != geometry.stripe_pixels:
+            raise ValueError(f"stripe {first + n} is {len(raw)} bytes, not {geometry.stripe_pixels}")
         out.append(raw)
         at += length
     return out
@@ -318,9 +368,13 @@ SCALE = os.environ.get("TV_SCALE", "").strip() or "bicubic"
 if SCALE not in SCALE_MODES:
     raise SystemExit(f"TV_SCALE={SCALE!r} 无效，可选值：{' / '.join(SCALE_MODES)}")
 SCALER_FLAGS = SCALE
-FIT = (f"scale=iw*sar:ih,setsar=1,"
-       f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease:flags={SCALER_FLAGS},"
-       f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1")
+# 竖屏几何（宽<高）时先 transpose=1（顺时针 90°）把横向源转成竖屏再适配。
+# 设备端固件按对应竖屏几何编译（见 firmware 侧 av_protocol.h）。
+def fit(geometry: Geometry = DEFAULT_GEOMETRY) -> str:
+    transpose = "transpose=1," if geometry.portrait else ""
+    return (f"scale=iw*sar:ih,setsar=1,{transpose}"
+            f"scale={geometry.width}:{geometry.height}:force_original_aspect_ratio=decrease:flags={SCALER_FLAGS},"
+            f"pad={geometry.width}:{geometry.height}:(ow-iw)/2:(oh-ih)/2,setsar=1")
 
 DEFAULT_USER_AGENT = "AptvPlayer-UA"
 

@@ -51,7 +51,7 @@ class FullFrames(unittest.TestCase):
         entered, release, audio_done = threading.Event(), threading.Event(), threading.Event()
         result = []
 
-        def compress(_):
+        def compress(*_args):
             entered.set()
             if not release.wait(2):
                 raise TimeoutError("test did not release compressor")

@@ -13,17 +13,17 @@ class Quality:
     detail_numerator: int
     detail_denominator: int
 
-    def video_filter(self) -> str:
+    def video_filter(self, geometry: "frames.Geometry" = frames.DEFAULT_GEOMETRY) -> str:
         if self.detail_numerator == self.detail_denominator:
             return ''
-        width = max(2, frames.WIDTH * self.detail_numerator // self.detail_denominator // 2 * 2)
-        height = max(2, frames.HEIGHT * self.detail_numerator // self.detail_denominator // 2 * 2)
+        width = max(2, geometry.width * self.detail_numerator // self.detail_denominator // 2 * 2)
+        height = max(2, geometry.height * self.detail_numerator // self.detail_denominator // 2 * 2)
         # Restore the fixed wire geometry on the server. The device needs no
         # scaler or additional frame memory. Ultra takes the original path.
         return (f'scale={width}:{height}:flags=area,'
-                f'scale={frames.WIDTH}:{frames.HEIGHT}:flags=bilinear')
+                f'scale={geometry.width}:{geometry.height}:flags=bilinear')
 
-    def render(self, packets):
+    def render(self, packets, geometry: "frames.Geometry" = frames.DEFAULT_GEOMETRY):
         """Reduce detail once on the shared source, retaining fixed wire size.
 
         Native RGB332 indices are sampled directly, so this adds no colour
@@ -31,10 +31,10 @@ class Quality:
         """
         if self.detail_numerator == self.detail_denominator:
             return packets
-        raw = b''.join(stripe for part in packets for stripe in frames.unpack(part))
+        raw = b''.join(stripe for part in packets for stripe in frames.unpack(part, geometry))
         reduced = np.frombuffer(raw, dtype=np.uint8)[_sample_map(
-            frames.WIDTH, frames.HEIGHT, self.detail_numerator, self.detail_denominator)]
-        return tuple(frames.frame_packets(reduced.tobytes()))
+            geometry.width, geometry.height, self.detail_numerator, self.detail_denominator)]
+        return tuple(frames.frame_packets(reduced.tobytes(), geometry))
 
 
 @lru_cache(maxsize=8)

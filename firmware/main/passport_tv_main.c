@@ -140,19 +140,21 @@ static void console_task(void *arg) {
 }
 static void screen(const char *title,const char *a,const char *b,const char *c) {
     // No LVGL task or full-screen buffer; the launcher owns this static raw page.
+    // 竖屏默认：面板 240x320，每 16 行一条带。
     if(bsp_display_raw_claim()!=ESP_OK)return;
     const int soc=bsp_battery_soc();
-    for(int y=0;y<240;y+=12){
-        ui_surface_t s={stripes,320,y,12};
-        ui_text_fill(s,0,0,320,240,0x0864);
-        ui_text_fill(s,18,20,284,4,0x6e57);
-        ui_text_draw(s,24,40,"PASSPORT TV",0x6e57,0x0864);
-        ui_status_battery(s,296,40+(int)UI_TEXT_LINE_H/2,soc,0x0864);
-        ui_text_draw(s,24,76,title,UI_COLOR_TEXT,0x0864);
-        if(a)ui_text_draw(s,24,112,a,UI_COLOR_TEXT,0x0864);
-        if(b)ui_text_draw(s,24,146,b,UI_COLOR_DIM,0x0864);
-        if(c)ui_text_draw(s,24,180,c,UI_COLOR_DIM,0x0864);
-        if(bsp_display_raw_submit_nowait(y,12,stripes)!=ESP_OK ||
+    for(int y=0;y<320;y+=16){
+        ui_surface_t s={stripes,240,y,16};
+        ui_text_fill(s,0,0,240,320,0x0864);
+        ui_text_fill(s,18,20,204,4,0x6e57);
+        const int tw=ui_text_width("PASSPORT TV");
+        ui_text_draw(s,(240-tw)/2,48,"PASSPORT TV",0x6e57,0x0864);
+        ui_status_battery(s,224,48+(int)UI_TEXT_LINE_H/2,soc,0x0864);
+        ui_text_draw(s,24,96,title,UI_COLOR_TEXT,0x0864);
+        if(a)ui_text_draw(s,24,144,a,UI_COLOR_TEXT,0x0864);
+        if(b)ui_text_draw(s,24,192,b,UI_COLOR_DIM,0x0864);
+        if(c)ui_text_draw(s,24,240,c,UI_COLOR_DIM,0x0864);
+        if(bsp_display_raw_submit_nowait(y,16,stripes)!=ESP_OK ||
            bsp_display_raw_drain(1,200)!=ESP_OK)break;
     }
     (void)bsp_display_raw_drain(32,200);(void)bsp_display_raw_release();
@@ -284,7 +286,9 @@ static bool configure(void) {
     esp_err_t ready=passport_wifi_provision_prepare();
     if(ready!=ESP_OK || esp_efuse_mac_get_default(mac)!=ESP_OK){free(portal);vSemaphoreDelete(portal_lock);portal=NULL;return false;}
     snprintf(name,sizeof name,"PassportTV-%02X%02X-%03u",mac[4],mac[5],(unsigned)(esp_random()%1000));
-    atomic_store(&setup_saved,false);atomic_store(&scan_requested,true);atomic_store(&connect_requested,false);
+    // 不要在开启热点时立即触发 STA 扫描：APSTA 模式下扫描会切换信道、打断 softAP
+    // 信标，导致其他设备搜不到热点。改为等用户在配置页点击“扫描”时再触发。
+    atomic_store(&setup_saved,false);atomic_store(&scan_requested,false);atomic_store(&connect_requested,false);
     httpd_handle_t http=NULL;bool ok=false;
     if(passport_wifi_setup_ap(name)!=ESP_OK)goto done;
     httpd_config_t hc=HTTPD_DEFAULT_CONFIG();hc.max_open_sockets=3;hc.lru_purge_enable=true;hc.stack_size=10240;hc.max_uri_handlers=8;hc.open_fn=local_session;

@@ -24,7 +24,7 @@ from . import frames
 
 AVAILABLE = np is not None
 
-WIDTH, HEIGHT = frames.WIDTH, frames.HEIGHT
+WIDTH, HEIGHT = frames.WIDTH, frames.HEIGHT  # 进程默认几何；per-session 用 geometry 参数
 
 # 参考颜色与替代颜色允许的距离，取加权平方 RGB（绿权重最大，蓝最小）。
 # 档位从相邻调色板颜色的最小间距起步，更小则无可替换；0 档为参考本身。
@@ -45,7 +45,7 @@ if AVAILABLE:
 
 def _snap(reference: "np.ndarray", base: "np.ndarray", shown: "np.ndarray | None",
           held_distance: "np.ndarray | None", threshold: float,
-          vertical: bool = False) -> "np.ndarray":
+          vertical: bool = False, width: int = WIDTH, height: int = HEIGHT) -> "np.ndarray":
     """把 `base` 中的像素换成距离在 `threshold` 内的更省字节的索引。
 
     顺序为：设备已显示的值；逐列取左邻；`vertical` 时再逐行取上邻。
@@ -57,14 +57,14 @@ def _snap(reference: "np.ndarray", base: "np.ndarray", shown: "np.ndarray | None
         out[keep] = shown[keep]
     columns = np.ascontiguousarray(out.T)
     source = np.ascontiguousarray(reference.transpose(1, 0, 2))
-    for x in range(1, WIDTH):
+    for x in range(1, width):
         left = columns[x - 1]
         gap = _PALETTE_W[left] - source[x]
         near = (np.einsum("ij,ij->i", gap, gap) <= threshold) & (columns[x] != left)
         np.copyto(columns[x], left, where=near)
     out = np.ascontiguousarray(columns.T)
     if vertical:
-        for y in range(1, HEIGHT):
+        for y in range(1, height):
             up = out[y - 1]
             gap = _PALETTE_W[up] - reference[y]
             near = (np.einsum("ij,ij->i", gap, gap) <= threshold) & (out[y] != up)
@@ -72,35 +72,37 @@ def _snap(reference: "np.ndarray", base: "np.ndarray", shown: "np.ndarray | None
     return out
 
 
-def _mosaic(base: "np.ndarray", block: int) -> "np.ndarray":
+def _mosaic(base: "np.ndarray", block: int, width: int = WIDTH, height: int = HEIGHT) -> "np.ndarray":
     """`base` 中每个 `block` x `block` 方块填成其左上角像素。"""
     small = base[::block, ::block]
-    return np.repeat(np.repeat(small, block, axis=0), block, axis=1)[:HEIGHT, :WIDTH]
+    return np.repeat(np.repeat(small, block, axis=0), block, axis=1)[:height, :width]
 
 
 def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
                   hint: int = 0, min_diff: float = frames.DELTA_MAX_DIFF,
-                  mode: str = "perceptual") -> tuple[list[bytes], bytes, int]:
+                  mode: str = "perceptual",
+                  geometry: "frames.Geometry" = frames.DEFAULT_GEOMETRY) -> tuple[list[bytes], bytes, int]:
     """契约同 `frames.encode_within`，返回（待发条带，设备将显示的画面，档位）。
 
     先试 0 档（原帧）；放不下则从 `hint`（上一帧所需档位）起搜：放得下就再试低一档，
     放不下就在更高档位间二分。`mode` 取自 `MODES`，决定档位如何变成画面。
     """
-    if len(raw) != frames.FRAME_PIXELS:
-        raise ValueError(f"frame is {len(raw)} bytes, expected {frames.FRAME_PIXELS}")
+    gwidth, gheight = geometry.width, geometry.height
+    if len(raw) != geometry.frame_pixels:
+        raise ValueError(f"frame is {len(raw)} bytes, expected {geometry.frame_pixels}")
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}")
     top = (len(MOSAIC_BLOCKS) if mode == "mosaic" else len(LEVELS)) - 1
 
     def render(level: int) -> bytes:
         if mode == "mosaic":
-            return _mosaic(base, MOSAIC_BLOCKS[level]).tobytes()
+            return _mosaic(base, MOSAIC_BLOCKS[level], gwidth, gheight).tobytes()
         return _snap(reference, base, held, held_distance, LEVELS[level],
-                     vertical=mode == "perceptual_2d").tobytes()
+                     vertical=mode == "perceptual_2d", width=gwidth, height=gheight).tobytes()
 
     def attempt(level: int):
         drawn = raw if level == 0 else render(level)
-        return frames.choose_stripes(drawn, shown, tick, 1 << 30, min_diff), drawn
+        return frames.choose_stripes(drawn, shown, tick, 1 << 30, min_diff, geometry), drawn
 
     def fits(result) -> bool:
         return frames._wire_size(result[0]) <= target
@@ -109,11 +111,11 @@ def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
     if fits(result):
         return result[0], result[1], 0
 
-    base = np.frombuffer(raw, np.uint8).reshape(HEIGHT, WIDTH)
+    base = np.frombuffer(raw, np.uint8).reshape(gheight, gwidth)
     reference = _PALETTE_W[base]
     held = held_distance = None
     if shown is not None:
-        held = np.frombuffer(shown, np.uint8).reshape(HEIGHT, WIDTH)
+        held = np.frombuffer(shown, np.uint8).reshape(gheight, gwidth)
         gap = _PALETTE_W[held] - reference
         held_distance = np.einsum("hwc,hwc->hw", gap, gap)
 
@@ -136,4 +138,4 @@ def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
     if best is not None:
         return best
     drawn = attempt(top)[1]
-    return frames.choose_stripes(drawn, shown, tick, target, min_diff), drawn, top
+    return frames.choose_stripes(drawn, shown, tick, target, min_diff, geometry), drawn, top

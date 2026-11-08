@@ -317,8 +317,9 @@ esp_err_t bsp_display_raw_claim(void) {
     // esp_lcd logs one "overwritten" warning per handover; it is expected here.
     esp_lcd_panel_io_callbacks_t cb = { .on_color_trans_done = raw_done };
     esp_err_t e = esp_lcd_panel_io_register_event_callbacks(s_io, &cb, s_raw_done);
-    if (e == ESP_OK) e = esp_lcd_panel_swap_xy(s_panel, true);
-    if (e == ESP_OK) e = esp_lcd_panel_mirror(s_panel, true, false);
+    // 竖屏默认：ST7789 原生 240x320，不做 swap。如需横屏可在此按方向改为 swap_xy(true)。
+    if (e == ESP_OK) e = esp_lcd_panel_swap_xy(s_panel, false);
+    if (e == ESP_OK) e = esp_lcd_panel_mirror(s_panel, false, false);
     if (e != ESP_OK) {
         esp_lcd_panel_io_register_event_callbacks(s_io, &s_lvgl_callbacks, s_lvgl_callback_ctx);
         vSemaphoreDelete(s_raw_done); s_raw_done = NULL;
@@ -331,8 +332,9 @@ esp_err_t bsp_display_raw_claim(void) {
 
 esp_err_t bsp_display_raw_submit_nowait(int y, int rows, const void *pixels) {
     if (!s_raw) return ESP_ERR_INVALID_STATE;
-    if (!pixels || y < 0 || rows <= 0 || y + rows > BSP_LCD_W) return ESP_ERR_INVALID_ARG;
-    esp_err_t e = esp_lcd_panel_draw_bitmap(s_panel, 0, y, BSP_LCD_H, y + rows, pixels);
+    // 竖屏默认：面板原生 240x320，条带是 240 宽、rows 高的水平窗口。
+    if (!pixels || y < 0 || rows <= 0 || y + rows > BSP_LCD_H) return ESP_ERR_INVALID_ARG;
+    esp_err_t e = esp_lcd_panel_draw_bitmap(s_panel, 0, y, BSP_LCD_W, y + rows, pixels);
     if (e == ESP_OK) s_raw_outstanding++;
     return e;
 }

@@ -10,7 +10,7 @@ typedef struct {
     ui_view_t view;
     unsigned selected, scroll, quality, quality_selected, count;
     uint32_t revision, builds;
-    ui_text_run_t text[9];
+    ui_text_run_t text[12];
 } ui_menu_overlay_t;
 void ui_menu_overlay_paint(ui_menu_overlay_t *cache, const ui_menu_t *menu,
                            ui_surface_t surface);

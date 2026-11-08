@@ -29,7 +29,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import tv_server, quality
+from . import tv_server, quality, frames
 from .live import CHANNELS, DEFAULT_CHANNEL, LiveError
 from .replay import Replay
 from .protocol import (Kind, Packet, ProtocolError, json_bytes, json_object,
@@ -103,6 +103,8 @@ class Session(tv_server.AVServer):
         payload = json_object(hello.payload)
         self.device = self.authenticate_hello(hello, payload)
         self.profile = quality.requested(payload.get('quality'))
+        orientation = payload.get("orientation")
+        self.orientation = orientation if orientation in ("landscape", "portrait") else None
         requested = payload.get("channel")
         channel_id = requested if isinstance(requested, str) and requested in CHANNELS else DEFAULT_CHANNEL
         # The firmware explicitly sends "" to request the default at boot.
@@ -118,13 +120,18 @@ class Session(tv_server.AVServer):
             options = {'profile': self.profile} if self.profile is not None else {}
             self.channel_factory = self.shared.channel_factory(
                 channel_id, loop=channel_id in self.shared_loops, **options)
-        elif self.profile is not None:
-            factory = self.channel_factory
-            def selected(*args):
-                channel = factory(*args)
-                channel.profile = self.profile
-                return channel
-            self.channel_factory = selected
+        else:
+            if self.profile is not None or self.orientation is not None:
+                factory = self.channel_factory
+                def selected(*args):
+                    channel = factory(*args)
+                    if self.profile is not None:
+                        channel.profile = self.profile
+                    if self.orientation is not None:
+                        channel.orientation = self.orientation
+                        channel.geometry = frames.geometry_for(self.orientation)
+                    return channel
+                self.channel_factory = selected
         self._live_session(connection, channel_id)
 
     def authenticate_hello(self, hello, payload):

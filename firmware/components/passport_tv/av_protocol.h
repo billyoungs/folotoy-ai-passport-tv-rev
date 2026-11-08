@@ -76,8 +76,8 @@
 #define AV_AUDIO_SAMPLES 640u
 #define AV_AUDIO_PCM_BYTES (AV_AUDIO_SAMPLES * 2u)
 #define AV_AUDIO_BYTES (AV_ADPCM_HEADER_BYTES + AV_AUDIO_SAMPLES / 2u)
-#define AV_WIDTH 320u
-#define AV_HEIGHT 240u
+#define AV_WIDTH 240u
+#define AV_HEIGHT 320u
 // How much picture arrives, and how much the device makes of it.
 //
 // The ratio in force is 1/1: the picture arrives at the panel's own size and
@@ -92,12 +92,12 @@
 //
 // The cost is real and is paid in frame rate: a native frame is 20.4 kB against
 // 12.1 kB at 240x180, so the same link carries about half as many of them.
-#define AV_VIDEO_WIDTH 320u
-#define AV_VIDEO_HEIGHT 180u
+#define AV_VIDEO_WIDTH 240u
+#define AV_VIDEO_HEIGHT 320u
 // Rows the picture supplies per stripe. Distinct from AV_STRIPE_ROWS, which is
 // what the panel takes: one is the input to the enlargement and the other is its
 // output, and they are equal exactly when the ratio is one.
-#define AV_VIDEO_STRIPE_ROWS 12u
+#define AV_VIDEO_STRIPE_ROWS 16u
 // How the picture reaches the panel: AV_ENLARGE_NUM picture rows become
 // AV_ENLARGE_DEN panel rows. 8/5 means the device enlarges by that ratio; 1/1
 // means the picture is already panel-sized and nothing is enlarged.
@@ -111,7 +111,7 @@
 #define AV_ENLARGE_DEN 1u
 // Rows the panel takes, unchanged. Every use of this name outside the decoder is
 // about the panel.
-#define AV_STRIPE_ROWS 12u
+#define AV_STRIPE_ROWS 16u
 // A frame is cut into stripes of AV_VIDEO_STRIPE_ROWS rows, compressed one at a
 // time. Stripes rather than one stream so the panel starts updating while the
 // rest of the frame is still crossing the network, and so no buffer larger than

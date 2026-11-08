@@ -235,21 +235,23 @@ if DEGRADE not in DEGRADE_MODES:
     raise SystemExit(f"TV_DEGRADE={DEGRADE!r} 无效，可选值：{' / '.join(DEGRADE_MODES)}")
 if DEGRADE in perceptual.MODES and not perceptual.AVAILABLE:
     raise SystemExit(f"TV_DEGRADE={DEGRADE} 需要 numpy，请先安装（pip install -r requirements.txt）")
-_VIDEO_CHAIN = f"{frames.FIT},{PRE_FILTER}" if PRE_FILTER else frames.FIT
+def _video_chain(geometry: "frames.Geometry") -> str:
+    fit = frames.fit(geometry)
+    return f"{fit},{PRE_FILTER}" if PRE_FILTER else fit
 # 帧放入字节目标后剩余字节的用法：delta 只发变化超过 TV_DELTA_MAX_DIFF 的条带，
 # fill 补发被跳过的条带；full 在生产线程压缩完整原帧，预算只限制发送频率。
 ENCODE_MODES = ("delta", "fill", "full")
 ENCODE = os.environ.get("TV_ENCODE", "").strip() or "delta"
 if ENCODE not in ENCODE_MODES:
     raise SystemExit(f"TV_ENCODE={ENCODE!r} 无效，可选值：{' / '.join(ENCODE_MODES)}")
-def source_graph(fps: int, profile=None) -> str:
+def source_graph(fps: int, profile=None, geometry: "frames.Geometry" = frames.DEFAULT_GEOMETRY) -> str:
     """单个滤镜图，两路输出画面与音频。
 
     format=rgb8 在 showinfo 之前，使记录的帧即写出的帧；aformat=mono 须在 asetnsamples 之前，
     否则立体声帧含两个设备块，一行 ashowinfo 对应两块，时间戳与载荷错位。
     """
-    extra = profile.video_filter() if profile is not None else ''
-    chain = f'{_VIDEO_CHAIN},{extra}' if extra else _VIDEO_CHAIN
+    extra = profile.video_filter(geometry) if profile is not None else ''
+    chain = f'{_video_chain(geometry)},{extra}' if extra else _video_chain(geometry)
     return (
         f"[0:v]setpts=PTS-STARTPTS,fps={fps},{chain},format=rgb8,showinfo[v];"
         f"[0:a]asetpts=PTS-STARTPTS,aresample={AUDIO_RATE},aformat=channel_layouts=mono,"
@@ -259,7 +261,8 @@ def source_graph(fps: int, profile=None) -> str:
 
 
 def source_command(url: str, video_port: int, audio_port: int, ffmpeg: str,
-                   user_agent: str = "", fps: int = FPS, *, loop: bool = False, profile=None) -> list[str]:
+                   user_agent: str = "", fps: int = FPS, *, loop: bool = False, profile=None,
+                   geometry: "frames.Geometry" = frames.DEFAULT_GEOMETRY) -> list[str]:
     """构造 ffmpeg 命令：读取源一次，画面与音频经两个回环 TCP 端口输出，时间戳由 showinfo 日志给出。
 
     画面量化到 ffmpeg 固定 3-3-2 调色板（与固件 av_palette_rgb565 一致），关闭抖动（见 CLAUDE.md 关键设计决策 1）；
@@ -271,7 +274,7 @@ def source_command(url: str, video_port: int, audio_port: int, ffmpeg: str,
         ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "info", "-nostats",
         *frames.input_options(url, user_agent, paced=True, loop=loop),
         "-i", url,
-        "-filter_complex", source_graph(fps, profile),
+        "-filter_complex", source_graph(fps, profile, geometry),
         "-map", "[v]", "-pix_fmt", "rgb8", "-sws_dither", "none",
         "-threads", "1", "-f", "rawvideo", f"tcp://127.0.0.1:{video_port}",
         "-map", "[a]", "-f", "s16le", f"tcp://127.0.0.1:{audio_port}",
@@ -356,7 +359,8 @@ class LiveChannel:
     def full_frames(self) -> bool:
         return ENCODE == "full" or not frames.DELTA
 
-    def __init__(self, url: str, ffmpeg: str = "ffmpeg", user_agent: str = ""):
+    def __init__(self, url: str, ffmpeg: str = "ffmpeg", user_agent: str = "",
+             orientation: str | None = None):
         if url not in CHANNELS.values():
             raise ValueError("channel URL is not in the local allowlist")
         self.url = url
@@ -364,6 +368,9 @@ class LiveChannel:
         self.user_agent = user_agent
         self.loop_input = False
         self.profile = None
+        # 会话方向（landscape/portrait）决定服务端用哪种几何下发视频。
+        self.orientation = orientation if orientation in ("landscape", "portrait") else None
+        self.geometry = frames.geometry_for(self.orientation) if self.orientation else frames.DEFAULT_GEOMETRY
         self.stop = threading.Event()
         self.audio = collections.deque(maxlen=PCM_QUEUE_CHUNKS)
         self.video = collections.deque(maxlen=VIDEO_QUEUE_FRAMES)
@@ -467,7 +474,8 @@ class LiveChannel:
             self.timestamps = pts.Timestamps()
             self.decoder = subprocess.Popen(
                 source_command(self.url, video_port, audio_port, self.ffmpeg,
-                               self.user_agent, self.fps, loop=self.loop_input, profile=self.profile),
+                               self.user_agent, self.fps, loop=self.loop_input, profile=self.profile,
+                               geometry=self.geometry),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE)
             self.pts_reader = pts.Reader(self.decoder.stderr, self.timestamps)
@@ -633,7 +641,7 @@ class LiveChannel:
         else:
             # 独立完整帧不依赖前一帧是否发送/绘制。压缩在已有视频生产线程、
             # 共享锁之外完成，音频生产与发送不必等待感知降级搜索。
-            packets = frames.frame_packets(frame)
+            packets = frames.frame_packets(frame, self.geometry)
         with self.lock:
             self.produced_video = getattr(self, "produced_video", 0) + 1
             self.encoded_video_bytes = getattr(self, "encoded_video_bytes", 0) + sum(map(len, packets))
@@ -768,16 +776,17 @@ class LiveChannel:
         if DEGRADE in perceptual.MODES:
             chosen, drawn, rung = perceptual.encode_within(
                 raw, self._shown, self._delta_tick, self._budget.target(), self._snap_level,
-                mode=DEGRADE)
+                mode=DEGRADE, geometry=self.geometry)
             self._snap_level = rung
         else:
             chosen, drawn, rung = frames.encode_within(raw, self._shown, self._delta_tick,
-                                                       self._budget.target())
+                                                       self._budget.target(), geometry=self.geometry)
         if ENCODE == "fill":
-            chosen = frames.fill_stripes(drawn, self._shown, chosen, self._budget.target())
+            chosen = frames.fill_stripes(drawn, self._shown, chosen, self._budget.target(),
+                                         self.geometry)
         self._delta_tick += 1
-        self._shown = frames.apply_stripes(drawn, self._shown, chosen)
-        out = frames.pack_stripes(chosen)
+        self._shown = frames.apply_stripes(drawn, self._shown, chosen, self.geometry)
+        out = frames.pack_stripes(chosen, self.geometry)
         wire = sum(len(part) + HEADER.size for part in out)
         self.coarse_frames += rung > 0
         self.encoded_video_bytes += wire
