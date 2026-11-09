@@ -569,7 +569,7 @@ void bsp_audio_set_volume(uint8_t percent) {
     if (s_dev && s_opened && !s_sleeping) esp_codec_dev_set_out_vol(s_dev, s_volume);
 }
 
-// TV mode helpers (ported from ai-passport-tv, MIT): bounded writes so a stalled
+// TV mode helpers (ported from folotoy-ai-passport-tv-rev, MIT): bounded writes so a stalled
 // stream cannot block the player, and explicit mute/close around a session.
 esp_err_t bsp_audio_write_timeout(const void *pcm, size_t bytes, size_t *written, uint32_t timeout_ms) {
     if (!written) return ESP_ERR_INVALID_ARG;

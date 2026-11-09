@@ -290,7 +290,7 @@ esp_err_t bsp_display_prepare_deep_sleep(void) {
 
 // ---------------------------------------------------------------------------
 // Raw landscape ownership, used by TV mode while LVGL rendering is stopped.
-// Ported from ai-passport-tv (MIT). The caller must stop LVGL first: claim()
+// Ported from folotoy-ai-passport-tv-rev (MIT). The caller must stop LVGL first: claim()
 // replaces LVGL's DMA-done callback and release() puts it back.
 static SemaphoreHandle_t s_raw_done;
 static bool s_raw;

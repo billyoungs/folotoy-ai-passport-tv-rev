@@ -7,13 +7,13 @@
 
 本文档中的路径**均为相对路径**，以「项目根」为基准，保证换开发机可移植：
 
-- `<仓库根>`：克隆 `billyoungs/ai-passport-tv` 仓库的目录（含 `reference/`、`baseline/`）。
-- `<项目根>`：`<仓库根>/reference`（TV 服务端与固件所在）。
+- `<仓库根>`：克隆 `billyoungs/folotoy-ai-passport-tv-rev` 仓库后的目录（即 TV 项目所在目录，含 `service/`、`firmware/`、`tools/` 等）。
+- `<项目根>`：即 `<仓库根>`（TV 服务端与固件所在）。
 - `<ESP-IDF 路径>`：ESP-IDF 5.5.3 的安装目录，换机后按实际路径修改（常见 `~/esp/esp-idf`）。
 - `<串口>`：设备串口，Linux 常见 `/dev/ttyACM0`，macOS 常见 `/dev/cu.usbmodem...`。
 - `~`：当前用户的 home 目录。
 
-例如，本机部署时 `<项目根>` = `/home/billyoung/agent-projects/ai-passport-tv/reference`；换到其它机器后，把 `<项目根>` 替换为该机器上 `reference/` 的实际路径即可，其余命令不变。
+例如，本机部署时 `<项目根>` = `/home/billyoung/agent-projects/ai-passport-tv/reference`；换到其它机器后，把 `<项目根>` 替换为该机器上克隆仓库的实际路径即可，其余命令不变。
 
 ## 1. 部署概况
 
@@ -23,7 +23,7 @@
 | 操作系统 | 示例：Fedora Linux 45 (Server Edition), x86_64 |
 | Python | 系统 Python 3.10+（本机为 3.15.0） |
 | FFmpeg | 全局安装 `ffmpeg`/`ffprobe` 且在 PATH（或把其所在目录加入 PATH） |
-| 服务端代码 | `<项目根>/service/`（Python TV 服务，来自本项目仓库 `billyoungs/ai-passport-tv`） |
+| 服务端代码 | `<项目根>/service/`（Python TV 服务，来自本项目仓库 `billyoungs/folotoy-ai-passport-tv-rev`） |
 | 服务端口 | TCP `10745`（默认，可用 `server.env` 的 `TV_PORT` 修改） |
 | 监听地址 | `0.0.0.0`（`server.env` 的 `TV_BIND`） |
 | 本机局域网 IP | `<本机局域网 IP>`（用 `hostname -I` 查看；设备需填写该地址） |
@@ -191,7 +191,7 @@ ch000 | CCTV1 | http://101.35.240.114:88/live.php?id=CCTV1 | AptvPlayer-UA
 
 ## 10. 项目来源
 
-- 本项目仓库：`https://github.com/billyoungs/ai-passport-tv`（独立维护，不接收上游变动）
+- 本项目仓库：`https://github.com/billyoungs/folotoy-ai-passport-tv-rev`（独立维护，不接收上游变动）
 - 服务端代码位于 `<项目根>/service/`；启动器为 `<项目根>/tools/run_server.py`，入口脚本 `<项目根>/start-server.sh`。
 - 服务端依赖：`numpy`（用于画面劣化处理；`ladder` 等部分模式仅依赖标准库）。
 

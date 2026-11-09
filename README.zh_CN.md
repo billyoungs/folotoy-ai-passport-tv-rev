@@ -20,8 +20,8 @@
 ## 1. 下载项目
 
 ```sh
-git clone https://github.com/billyoungs/ai-passport-tv.git
-cd ai-passport-tv
+git clone https://github.com/billyoungs/folotoy-ai-passport-tv-rev.git
+cd folotoy-ai-passport-tv-rev
 ```
 
 目录说明：
