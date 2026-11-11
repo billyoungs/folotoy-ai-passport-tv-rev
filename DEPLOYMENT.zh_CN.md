@@ -154,7 +154,7 @@ ch000 | CCTV1 | http://101.35.240.114:88/live.php?id=CCTV1 | AptvPlayer-UA
 
 ## 7. 经验与注意事项（落盘）
 
-- **FFmpeg 复用**：确保 `ffmpeg`/`ffprobe` 在 PATH 中（例如把全局 FFmpeg 所在目录符号链接到 `~/.local/bin`），启动器用 `shutil.which('ffmpeg'/'ffprobe')` 找到它们，避免重复下载大体积静态包。
+- **FFmpeg 复用**：确保 `ffmpeg`/`ffprobe` 在 PATH 中；启动器用 `shutil.which('ffmpeg'/'ffprobe')` 动态找到它们，因此升级系统 FFmpeg（本机 9.0.1→9.0.2，现为 `/usr/bin/ffmpeg`）**无需改代码**。早期曾用 `~/.local/bin` 符号链接加入 PATH，系统安装后已不需要。
 - **网络较慢时的依赖安装**：首次 `pip install numpy` 从 pypi.org 直连较慢（可配置国内镜像加速，如清华 PyPI：`pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple`）。本机最终通过直连完成（numpy 2.5.4）。
 - **Python 版本**：服务端要求 3.10+；本机 3.15.0 满足，numpy 已提供对应 cp315 wheel。
 - **无需 ESP-IDF**：运行服务端不需要 ESP-IDF，只需 Python + FFmpeg + ffprobe。
@@ -242,14 +242,15 @@ rm -f server.env channels.txt pairing.code pairing.token paired-devices.json ser
 rm -rf .venv
 ```
 
-### 11.5 移除 FFmpeg 符号链接（恢复 PATH 原状）
+### 11.5 FFmpeg 清理说明
 
-```sh
-rm -f ~/.local/bin/ffmpeg ~/.local/bin/ffprobe
-```
-
-- 只删符号链接，**不影响**全局 FFmpeg（真实二进制仍在其原始目录）。
-- 验证：`command -v ffmpeg ffprobe` 应无输出。
+- 当前 FFmpeg 为**系统安装**：`/usr/bin/ffmpeg`、`/usr/bin/ffprobe`（本机 9.0.2），无需任何符号链接。
+- 若旧部署曾用 `~/.local/bin` 符号链接方式（早期方案），卸载时可删除符号链接：
+  ```sh
+  rm -f ~/.local/bin/ffmpeg ~/.local/bin/ffprobe
+  ```
+  只删符号链接，**不影响**系统 FFmpeg。
+- 验证：`command -v ffmpeg ffprobe` 应能找到系统 `ffmpeg`/`ffprobe`。
 
 ### 11.6 卸载完成验证
 
