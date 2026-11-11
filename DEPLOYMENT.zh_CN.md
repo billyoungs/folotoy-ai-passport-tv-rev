@@ -15,6 +15,15 @@
 
 例如，本机部署时 `<项目根>` = `/home/billyoung/agent-projects/ai-passport-tv/reference`；换到其它机器后，把 `<项目根>` 替换为该机器上克隆仓库的实际路径即可，其余命令不变。
 
+## 当前部署结果（备忘录）
+
+- **服务状态**：运行中，监听 `0.0.0.0:10745`；`<项目根>/start-server.sh --check` 输出 `PASS`。
+- **FFmpeg**：系统安装 **FFmpeg 9.0.2**（`/usr/bin/ffmpeg`、`/usr/bin/ffprobe`）；服务端通过 PATH 动态解析，无需符号链接。
+- **Python 环境**：项目内 `.venv`（Python 3.15.0），已装 `numpy 2.5.4`。
+- **配置文件**（`<项目根>/` 根目录）：`server.env`（端口 10745、监听 0.0.0.0）、`channels.txt`（16 个 CCTV 频道）、`pairing.code`（配对码，当前 `DPJQ`）、`pairing.token`、`paired-devices.json`。
+- **本机局域网 IP**：`192.168.31.107`（供设备填写）。
+- **项目仓库**：`https://github.com/billyoungs/folotoy-ai-passport-tv-rev`（独立维护，不接收上游变动）。
+
 ## 1. 部署概况
 
 | 项目 | 内容 |
